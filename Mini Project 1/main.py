@@ -1,10 +1,12 @@
+# At the bottom can be found a main method that runs all methods and shows the results.
+
 # Exercise 1 - Write code that allows Alice to build an encrypted message containing '2000'
 
 generator = 666
 prime = 6661
 public_key = 2227
 
-alice_privatekey = 1234  # I have chosen '1234', but anything can be put here
+alice_privatekey = 1234  # I have chosen the private key '1234', but anything can be put here.
 message = 2000
 
 def encrypt(x, y, prime, generator, message):
@@ -12,11 +14,6 @@ def encrypt(x, y, prime, generator, message):
     gxy = (x ** y) % prime
     c = (gxy * message) % prime
     return gy, c
-
-
-gy, c = encrypt(public_key, alice_privatekey, prime, generator, message)
-print(f'gy: {gy}, c: {c}')
-
 
 # Exercise 2 - Write code that allows Eve to find Bob’s private key and reconstruct Alice’s message.
 
@@ -27,15 +24,10 @@ def findPrivateKey(g, p, pk):
             return i
     return 0
 
-privateKey = findPrivateKey(generator, prime, public_key)
-print(f'private key: {privateKey}')
-
 def reconstructMessage(gy, c):
-    inverse = pow(gy, -privateKey, prime)
+    inverse = pow(gy, -(findPrivateKey(generator, prime, public_key)), prime)
     return (c * inverse) % prime
 
-reconstructedMessage = reconstructMessage(gy, c)
-print(f'reconstructed message: {reconstructedMessage}')
 
 # Exercise 3 - Write code that allows Weave to modify Alice’s encrypted message so that
 # when Bob decrypts it, he will get the double amount originally sent from Alice
@@ -43,14 +35,30 @@ print(f'reconstructed message: {reconstructedMessage}')
 def modifyMessage(c):
     return c * 2
 
-reconstructedMessage1 = reconstructMessage(gy, c)
-print(f'normal message: {reconstructedMessage1}')
-
-reconstructedMessage2 = reconstructMessage(gy, modifyMessage(c))
-print(f'modified message: {reconstructedMessage2}')
-
 def main():
-    print("Hello this is main!")
+    print("=== Mini Project 1 ===")
+    print('')
+
+    #Exercise 1
+    gy, c = encrypt(public_key, alice_privatekey, prime, generator, message)
+    print('Exercise 1: Running encrypt()')
+    print(f'gy: {gy}, c: {c}')
+    print('')
+
+    #Exercise 2
+    privateKey = findPrivateKey(generator, prime, public_key)
+    print('Exercise 2: Running findPrivateKey() and reconstructMessage()')
+    print(f'Private key: {privateKey}')
+    print('')
+
+    #Exercise 3
+    reconstructedMessage1 = reconstructMessage(gy, c)
+    print('Exercise 3: Running with and without modifyMessage()')
+    print(f'Normal message: {reconstructedMessage1}')
+
+    reconstructedMessage2 = reconstructMessage(gy, modifyMessage(c))
+    print(f'Modified message: {reconstructedMessage2}')
+    print('')
 
 if __name__ == "__main__":
     main()
