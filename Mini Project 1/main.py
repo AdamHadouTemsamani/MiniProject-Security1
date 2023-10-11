@@ -47,8 +47,10 @@ def main():
 
     #Exercise 2
     privateKey = findPrivateKey(generator, prime, public_key)
+    reconstructedMessage = reconstructMessage(gy, c)
     print('Exercise 2: Running findPrivateKey() and reconstructMessage()')
     print(f'Private key: {privateKey}')
+    print(f'Reconstructed message: {reconstructedMessage}')
     print('')
 
     #Exercise 3
