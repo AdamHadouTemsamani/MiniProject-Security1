@@ -1,0 +1,30 @@
+syntax = "proto3";
+
+package Mini_Project_2;
+option go_package = "Mini_Project_2/proto";
+
+// protoc --go_out=. --go_opt=paths=source_relative --go-grpc_out=. --go-grpc_opt=paths=source_relative proto/proto.proto
+
+service Ping {
+  rpc Ping (Request) returns (Reply) {}
+}
+
+message Request {
+  int32 id = 1;
+}
+
+message Reply {
+  int32 amount = 1;
+}
+
+service SendShares {
+  rpc SendShares (Share) returns (Acknoledgement) {}
+}
+
+message Share {
+  int32 message = 1;
+}
+
+message Acknoledgement {
+  int32 message = 1;
+}
