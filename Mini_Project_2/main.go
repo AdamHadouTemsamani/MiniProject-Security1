@@ -15,10 +15,10 @@ import (
 )
 
 type peer struct {
-	ping.UnimplementedPingServer
+	ping.UnimplementedSendSharesServer
 	id            int32
 	amountOfPings map[int32]int32
-	clients       map[int32]ping.PingClient
+	clients       map[int32]ping.SendSharesClient
 	ctx           context.Context
 
 	privateKey int
@@ -42,7 +42,7 @@ func main() {
 	field := 514229 //Prime in fibbonacci's sequence
 	numOfPeers := 3
 
-	if ownPort != 5000 {
+	if ownPort != 5050 {
 		ownKey = rand.Intn(field - 1)
 	} else {
 		ownKey = 0 //Hospital does not have private key, to avoid problems it is set to 0.
@@ -52,7 +52,7 @@ func main() {
 	p := &peer{
 		id:            ownPort,
 		amountOfPings: make(map[int32]int32),
-		clients:       make(map[int32]ping.PingClient),
+		clients:       make(map[int32]ping.SendSharesClient),
 		ctx:           ctx,
 
 		privateKey:       ownKey,
@@ -67,7 +67,7 @@ func main() {
 		log.Fatalf("Failed to listen on port: %v", err)
 	}
 	grpcServer := grpc.NewServer()
-	ping.RegisterPingServer(grpcServer, p)
+	ping.RegisterSendSharesServer(grpcServer, p)
 
 	go func() {
 		if err := grpcServer.Serve(list); err != nil {
@@ -90,45 +90,38 @@ func main() {
 		}
 
 		defer conn.Close()
-		c := ping.NewPingClient(conn)
+		c := ping.NewSendSharesClient(conn)
 		p.clients[port] = c
 	}
 
 	scanner := bufio.NewScanner(os.Stdin)
 	for scanner.Scan() {
-		p.sendPingToAll()
-	}
-}
-
-func (p *peer) Ping(ctx context.Context, req *ping.Request) (*ping.Reply, error) {
-	id := req.Id
-	p.amountOfPings[id] += 1
-
-	rep := &ping.Reply{Amount: p.amountOfPings[id]}
-	return rep, nil
-}
-
-func (p *peer) sendPingToAll() {
-	request := &ping.Request{Id: p.id}
-	for id, client := range p.clients {
-		reply, err := client.Ping(p.ctx, request)
-		if err != nil {
-			fmt.Println("something went wrong")
+		if ownPort == 5050 { //If you are the hosptital
+			fmt.Print("Welcome to the service!")
+			fmt.Print("To share a secret with the hospital, enter a number between 0 and 500.000")
+			secret, err := strconv.ParseInt(scanner.Text(), 10, 32)
+			if err != nil {
+				fmt.Print("Please enter a number!")
+			}
+			if secret < 0 || secret > 500000 {
+				fmt.Print("Please enter a number between 0 and 500.000")
+			} else {
+				p.ShareSecret(int(secret))
+			}
+		} else { //If you are on the clients/peer
+			fmt.Print("Welcome to the service!")
+			fmt.Print("You are the hospital. Please await, while the peers are sending you their secrets.")
 		}
-		fmt.Printf("Got reply from id %v: %v\n", id, reply.Amount)
 	}
 }
 
 func (p *peer) SendShare(ctx context.Context, share *ping.Share) (*ping.Acknoledgement, error) {
-	//shares := splitShare(p.privateKey, p.peerSize, p.fieldSize)
 	s := share.Message
-
-	if p.numberOfMessages == 2 && p.id != 5000 { //Received 2 chunks and we are not the hospital.
+	if p.numberOfMessages == 2 && p.id != 5050 { //Received 2 chunks and we are not the hospital.
 		fmt.Printf("I received the chunk: %d", s)
 		p.numberOfMessages = 0 //Reset the number of messages so that the protocol can be run again.
 		return &ping.Acknoledgement{Message: s}, nil
 	}
-
 	p.numberOfMessages++
 	p.receivedMessages = append(p.receivedMessages, int(s))
 
@@ -149,7 +142,7 @@ func (p *peer) CombineSharesAndSend() {
 		shares += share
 	}
 	shares = shares % p.fieldSize //Created combined share
-	if p.id == 5000 {
+	if p.id == 5050 {
 		p.BroadcastShares(shares)
 	} else {
 		p.BroadcastToHospital(shares)
@@ -160,7 +153,7 @@ func (p *peer) CombineSharesAndSend() {
 func (p *peer) BroadcastShares(shares int) {
 
 	for id, _ := range p.clients {
-		if id == (p.id - 5000) {
+		if id == (p.id - 5050) {
 			continue
 		}
 		p.BroadcastToPeers(shares, id)
@@ -168,17 +161,53 @@ func (p *peer) BroadcastShares(shares int) {
 }
 
 // Send shares (secret) to hospital
-func (p *peer) BroadcastToHospital(secretshare int) {
+func (p *peer) BroadcastToHospital(sumOfShares int) {
 	hospital := p.clients[0]
-	share := &ping.Share{Message: int32(secretshare)}
-	fmt.Printf("Sending share (%d) to hospital (%d)", secretshare, hospital)
-	ack, err :=
+	share := &ping.Share{Message: int32(sumOfShares)}
+	fmt.Printf("Sending share (%d) to hospital (%d)", sumOfShares, hospital)
+	ack, err := hospital.SendShares(p.ctx, share)
+	if err != nil {
+		log.Print("Something went wrong!")
+	}
+	fmt.Printf("%v has received the share %v", 0, ack.Message)
 
 }
 
-func (p *peer) BroadcastToPeers(share int, id int32) {
-	i := id - 5000 //Index of client
-	client := p.clients[i]
+// Send shares (secret) to peer
+func (p *peer) BroadcastToPeers(secret int, index int32) {
+	client := p.clients[index]
+	share := &ping.Share{Message: int32(secret)}
+	fmt.Printf("Sending secret (%d) to peer (%d)", secret, client)
+	ack, err := client.SendShares(p.ctx, share)
+	if err != nil {
+		log.Print("Something went wrong!")
+	}
+	fmt.Printf("%v has received the share %v", 0, ack.Message)
+}
+
+func (p *peer) ShareSecret(secret int) {
+	shares := splitShare(secret, p.peerSize, p.fieldSize)
+	shareId := 0
+	for id, _ := range p.clients {
+		if id == 0 || id == (p.id-5050) { //Don't send if you are hospital and don't send it to yourself
+			continue
+		}
+		p.BroadcastToPeers(shares[shareId], id)
+		shareId++
+	}
+
+	//Keep the last of three shares to yourself, which is why we set shareId to 0
+	p.receivedMessages = append(p.receivedMessages, shares[shareId])
+	if len(p.receivedMessages) == 3 {
+		var sumOfShares int
+		for _, share := range p.receivedMessages {
+			sumOfShares += share
+		}
+
+		p.BroadcastToHospital(sumOfShares)
+		p.receivedMessages = p.receivedMessages[:0] //Empty array, but keep allocated memory
+	}
+
 }
 
 // Makes shares suing a circular group
