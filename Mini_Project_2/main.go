@@ -11,6 +11,7 @@ import (
 	"net"
 	"os"
 	"strconv"
+	"time"
 )
 
 type peer struct {
@@ -19,9 +20,13 @@ type peer struct {
 	amountOfPings map[int32]int32
 	clients       map[int32]ping.PingClient
 	ctx           context.Context
-	privateKey    int
-	fieldSize     int
-	peerSize      int
+
+	privateKey int
+	fieldSize  int
+	peerSize   int
+
+	numberOfMessages int
+	receivedMessages []int
 }
 
 func main() {
@@ -34,7 +39,6 @@ func main() {
 	defer cancel() //Ends the connection when it has finished.
 
 	var ownKey int
-	var prime int
 	field := 514229 //Prime in fibbonacci's sequence
 	numOfPeers := 3
 
@@ -51,9 +55,10 @@ func main() {
 		clients:       make(map[int32]ping.PingClient),
 		ctx:           ctx,
 
-		privateKey: ownKey,
-		fieldSize:  field,
-		peerSize:   numOfPeers,
+		privateKey:       ownKey,
+		fieldSize:        field,
+		peerSize:         numOfPeers,
+		numberOfMessages: 0, //At the beginning you haven't received any messages.
 	}
 
 	// Create listener tcp on port ownPort
@@ -115,15 +120,65 @@ func (p *peer) sendPingToAll() {
 }
 
 func (p *peer) SendShare(ctx context.Context, share *ping.Share) (*ping.Acknoledgement, error) {
-	shares := splitShare(p.privateKey, p.peerSize, p.fieldSize)
+	//shares := splitShare(p.privateKey, p.peerSize, p.fieldSize)
+	s := share.Message
+
+	if p.numberOfMessages == 2 && p.id != 5000 { //Received 2 chunks and we are not the hospital.
+		fmt.Printf("I received the chunk: %d", s)
+		p.numberOfMessages = 0 //Reset the number of messages so that the protocol can be run again.
+		return &ping.Acknoledgement{Message: s}, nil
+	}
+
+	p.numberOfMessages++
+	p.receivedMessages = append(p.receivedMessages, int(s))
+
+	//Check if a peer has received three shares
+	if len(p.receivedMessages) == 3 {
+		go func() {
+			time.Sleep(time.Millisecond * 3)
+			p.CombineSharesAndSend()
+		}()
+	}
+	return &ping.Acknoledgement{Message: s}, nil
+}
+
+// Combine the shares and send them to hospital.
+func (p *peer) CombineSharesAndSend() {
+	var shares int
+	for _, share := range p.receivedMessages {
+		shares += share
+	}
+	shares = shares % p.fieldSize //Created combined share
+	if p.id == 5000 {
+		p.BroadcastShares(shares)
+	} else {
+		p.BroadcastToHospital(shares)
+	}
+}
+
+// If you are hospital broadcast result to peers.
+func (p *peer) BroadcastShares(shares int) {
+
+	for id, _ := range p.clients {
+		if id == (p.id - 5000) {
+			continue
+		}
+		p.BroadcastToPeers(shares, id)
+	}
+}
+
+// Send shares (secret) to hospital
+func (p *peer) BroadcastToHospital(secretshare int) {
+	hospital := p.clients[0]
+	share := &ping.Share{Message: int32(secretshare)}
+	fmt.Printf("Sending share (%d) to hospital (%d)", secretshare, hospital)
+	ack, err :=
 
 }
 
-func (p *peer) SendShareToAll() {
-
-	for id, client := range p.clients {
-		reply, err := client.
-	}
+func (p *peer) BroadcastToPeers(share int, id int32) {
+	i := id - 5000 //Index of client
+	client := p.clients[i]
 }
 
 // Makes shares suing a circular group
