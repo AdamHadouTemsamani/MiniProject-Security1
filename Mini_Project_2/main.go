@@ -103,6 +103,7 @@ func main() {
 		fmt.Println("You are the hospital. Please wait, while the peers are sending you their secrets.")
 		for scanner.Scan() {
 			fmt.Println("Please wait for the peers!")
+			fmt.Printf("Your id: %d \n", ownPort)
 		}
 
 	} else { //If you are on the clients/peer
@@ -131,7 +132,7 @@ func (p *peer) ShareSecret(secret int) {
 	shareId := 0
 	for id, _ := range p.clients {
 		fmt.Printf("This is the id: %d \n", id)
-		if id == 0 || id == (p.id) { //Don't send if you are hospital and don't send it to yourself
+		if id == 5050 || id == (p.id) { //Don't send if you are hospital and don't send it to yourself
 			continue
 		}
 		p.BroadcastToPeers(shares[shareId], id)
@@ -218,6 +219,7 @@ func (p *peer) BroadcastToHospital(sumOfShares int) {
 
 // Send shares (secret) to peer
 func (p *peer) BroadcastToPeers(secret int, index int32) {
+	fmt.Printf("Index: %d \n", index)
 	client := p.clients[index]                   //Get peer by index
 	share := &ping.Share{Message: int32(secret)} //Create share message
 
@@ -229,23 +231,19 @@ func (p *peer) BroadcastToPeers(secret int, index int32) {
 	fmt.Printf("%v should have received the share %v", 0, ack.Message)
 }
 
-// Makes shares suing a circular group
-// Make field size prime number
-// i guess secret is random number in field
+// Make three shares using a circular group using a prime number.
 func splitShare(secret int, N int, fieldSize int) []int {
 	array := make([]int, N)
-	for i := 0; i < N-2; i++ {
-		array[i] = rand.Intn(fieldSize)
+	for i := 0; i < N-1; i++ {
+		rand.Seed(time.Now().UTC().UnixNano())
+		randomShare := rand.Intn(fieldSize)
+		array[i] = randomShare
 	}
 
-	/* Compute sum of shares to get the last share */
 	var sum int
 	for i := 0; i < len(array); i++ {
-		sum += array[i]
+		sum += array[i] //Add the two shares, this is used to compute the last share.
 	}
-
-	array[2] = (secret - sum) % fieldSize
-	fmt.Println("This is the array in the method: splitShare()")
-	fmt.Println(array)
+	array[2] = (secret - sum) % fieldSize //Compute the last share
 	return array
 }
