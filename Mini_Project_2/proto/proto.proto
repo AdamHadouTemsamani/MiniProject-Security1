@@ -6,7 +6,7 @@ option go_package = "Mini_Project_2/proto";
 // protoc --go_out=. --go_opt=paths=source_relative --go-grpc_out=. --go-grpc_opt=paths=source_relative proto/proto.proto
 
 service SendShares {
-  rpc SendShares (Share) returns (Acknoledgement) {}
+  rpc Send (Share) returns (Acknoledgement) {}
 }
 
 message Share {

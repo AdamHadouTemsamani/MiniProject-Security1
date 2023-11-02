@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	ping "Mini_Project_2/proto"
@@ -23,12 +24,12 @@ type peer struct {
 	clients       map[int32]ping.SendSharesClient
 	ctx           context.Context
 
-	privateKey int
-	fieldSize  int
-	peerSize   int
+	fieldSize int //The field size of the secret
+	peerSize  int //How many peers we are communicating with.
 
-	numberOfMessages int
-	receivedMessages []int
+	numberOfMessages int   //How many messages you have received.
+	messagesSent     int   //How many messages you have sent.
+	receivedMessages []int //An array with the messages you have received.
 }
 
 func main() {
@@ -40,20 +41,16 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel() //Ends the connection when it has finished.
 
-	field := 514229 //Prime in fibbonacci's sequence
-
 	//Peer, such as Bob, Alice, Eve and Hostpital.
 	p := &peer{
-		id:            ownPort,
-		amountOfPings: make(map[int32]int32),
-		clients:       make(map[int32]ping.SendSharesClient),
-		ctx:           ctx,
-
-		privateKey:       0,
-		fieldSize:        field,
-		peerSize:         3, //Number of peers in the system, excluding hospital
-		numberOfMessages: 0, //At the beginning you haven't received any messages.
-		receivedMessages: make([]int, 3),
+		id:               ownPort,
+		clients:          make(map[int32]ping.SendSharesClient),
+		ctx:              ctx,
+		fieldSize:        514229,         //Prime in fibbonacci's sequence
+		peerSize:         3,              //Number of peers in the system, excluding hospital
+		numberOfMessages: 0,              //At the beginning you haven't received any messages.
+		messagesSent:     0,              //Number of messages sent, which is zero.
+		receivedMessages: make([]int, 3), //Received shares.
 	}
 
 	// Create listener tcp on port ownPort
@@ -62,6 +59,7 @@ func main() {
 		log.Fatalf("Failed to listen on port: %v", err)
 	}
 
+	//Create a TLS server from the certificates
 	serverCertificate, err := credentials.NewServerTLSFromFile("certificate/server.crt", "certificate/priv.key")
 	if err != nil {
 		log.Fatalf("Big error:  %s", err)
@@ -77,8 +75,7 @@ func main() {
 
 	for i := 0; i <= 3; i++ {
 		port := int32(5050) + int32(i)
-
-		if port == ownPort {
+		if port == p.id {
 			continue
 		}
 
@@ -88,6 +85,7 @@ func main() {
 			log.Fatalf("Big error:  %s", err)
 		}
 
+		//Create a client that communicate through TLS
 		conn, err := grpc.Dial(fmt.Sprintf(":%v", port), grpc.WithTransportCredentials(clientCertificate), grpc.WithBlock())
 		if err != nil {
 			log.Fatalf("Could not connect: %s", err)
@@ -105,7 +103,6 @@ func main() {
 			fmt.Println("Please wait for the peers!")
 			fmt.Printf("Your id: %d \n", ownPort)
 		}
-
 	} else { //If you are on the clients/peer
 		fmt.Println("Welcome to the service!")
 		fmt.Println("To share a secret with the hospital, enter a number between 0 and 500.000")
@@ -114,67 +111,104 @@ func main() {
 			if err != nil {
 				fmt.Println("Please enter a number!")
 			}
-			if secret < 0 || secret > 500000 {
+			if secret < 0 || secret > 500000 { //Make sure that the secret is within the field size
 				fmt.Println("Please enter a number between 0 and 500.000")
 			} else {
 				fmt.Printf("You have chosen the secret: %d \n", secret)
-				p.privateKey = int(secret)
 				p.ShareSecret(int(secret))
 			}
 		}
 	}
 }
 
+// Share Secrets between each of the parties
 func (p *peer) ShareSecret(secret int) {
-	shares := splitShare(secret, p.peerSize, p.fieldSize) //Get shares, which is saved in an array
-	fmt.Println(shares)
+	shares := splitShare(secret, p.fieldSize) //Get shares, which is saved in an array/slice
+	fmt.Printf("These are my shares: %d \n", shares)
 
-	shareId := 0
-	for id, _ := range p.clients {
-		fmt.Printf("This is the id: %d \n", id)
-		if id == 5050 || id == (p.id) { //Don't send if you are hospital and don't send it to yourself
-			continue
+	//We only send the shares if we haven't sent any.
+	if p.messagesSent == 0 {
+		shareId := 0
+		for id, _ := range p.clients {
+			if id == 5050 || id == (p.id) { //Don't send if you are hospital and don't send it to yourself
+				continue
+			}
+			fmt.Printf("I am sending (%d) to peer: (%d) \n", shares[shareId], id)
+			p.BroadcastToPeers(shares[shareId], id)
+			shareId++        //So we get the next share for the array.
+			p.messagesSent++ //Increment messagesSent
 		}
-		p.BroadcastToPeers(shares[shareId], id)
-		shareId++
+
+		//After sending the two first shares to your peers, keep the last one to yourself.
+		fmt.Printf("I am keeping (%d) for myself \n", shares[shareId])
+		p.receivedMessages[p.numberOfMessages] = shares[shareId]
+		p.numberOfMessages++
 	}
 
-	//Keep the last of three shares to yourself, which is why we set shareId to 0
-	p.receivedMessages[p.numberOfMessages] = shares[shareId]
-	p.numberOfMessages++
-
-	time.Sleep(time.Millisecond * 5)
-	if len(p.receivedMessages) == 3 {
+	//If I have received shares all shares, broadcast it to the hospital.
+	if (p.numberOfMessages) == 3 {
 		var sumOfShares int
 		for _, share := range p.receivedMessages {
-			sumOfShares += share
+			sumOfShares += share //Create sum of shares
 		}
+		p.BroadcastToHospital(sumOfShares) //Broadcast to hospital.
 
-		p.BroadcastToHospital(sumOfShares)
-		p.receivedMessages = p.receivedMessages[:0] //Empty array, but keep allocated memory
 	}
 }
 
-func (p *peer) SendShare(ctx context.Context, share *ping.Share) (*ping.Acknoledgement, error) {
-	s := share.Message
-	if p.numberOfMessages == 2 && p.id != 5050 { //Received 2 chunks and we are not the hospital.
-		fmt.Printf("I received the final share: %d", s)
-		p.numberOfMessages++
+// GRPC method used to communicate between the peers, when sending shares.
+// It takes a "share" as an argument and returns an "acknoledgement".
+func (p *peer) Send(ctx context.Context, share *ping.Share) (*ping.Acknoledgement, error) {
+	var a sync.Mutex
+	a.Lock()
+	s := share.Message //Create share
 
-		//We should now have received three shares
-
-		if len(p.receivedMessages) == 3 {
-			go func() {
-				time.Sleep(time.Millisecond * 3)
-				p.CombineSharesAndSend()
-			}()
-		}
-		p.numberOfMessages = 0 //Reset the number of messages so that the protocol can be run again.
+	//Received 2 shares and we are not the hospital.
+	if p.numberOfMessages == 2 && p.id != 5050 {
+		p.receivedMessages[p.numberOfMessages] = int(s)
+		p.numberOfMessages = 0
+		go func() {
+			time.Sleep(time.Millisecond * 3)
+			p.CombineSharesAndSend() //Send to hospital, since we have now received all three shares.
+		}()
 		return &ping.Acknoledgement{Message: s}, nil
 	}
-	fmt.Printf("I have received the share: %d", s)
-	p.receivedMessages[p.numberOfMessages] = int(s)
-	p.numberOfMessages++
+
+	//If you are the hospital
+	if p.id == 5050 {
+		p.receivedMessages[p.numberOfMessages] = int(s)
+		p.numberOfMessages++
+		fmt.Printf("I have received sum number: %d, which is: %d.\n", p.numberOfMessages, s)
+		if p.numberOfMessages == 2 { //Received all shares
+			time.Sleep(time.Second)
+			var sumOfShares int
+			for _, share := range p.receivedMessages {
+				sumOfShares += share
+			}
+			sumOfShares = sumOfShares % p.fieldSize
+			fmt.Println("I have received sums from all peers.")
+			fmt.Printf("The final sum is %d.\n", sumOfShares)
+			p.numberOfMessages = 0
+		}
+	}
+
+	a.Unlock()
+	//If you are the last peer to send a share, then broadcast message to hospital.
+	if p.messagesSent == 3 {
+		go func() {
+			time.Sleep(time.Millisecond * 5)
+			p.CombineSharesAndSend() //Send to hospital.
+		}()
+		p.messagesSent = 0
+		p.numberOfMessages = 0 //Reset the number of messages so that the protocol can be run again.
+		return &ping.Acknoledgement{Message: s}, nil
+
+	}
+	if p.id != 5050 { //If you are not the hopsital, receive the message.
+		p.receivedMessages[p.numberOfMessages] = int(s)
+		p.numberOfMessages++
+		return &ping.Acknoledgement{Message: s}, nil
+	}
 	return &ping.Acknoledgement{Message: s}, nil
 }
 
@@ -182,68 +216,48 @@ func (p *peer) SendShare(ctx context.Context, share *ping.Share) (*ping.Acknoled
 func (p *peer) CombineSharesAndSend() {
 	var shares int
 	for _, share := range p.receivedMessages {
+		fmt.Printf("I am peer (%d) and the share is (%d) \n", p.id, share)
 		shares += share //Sum the three received shares.
 	}
 	shares = shares % p.fieldSize //Created combined share
 
-	if p.id == 5050 {
-		p.BroadcastShares(shares) //Broadcast shares to peers.
-	} else {
+	fmt.Printf("I am sending the sum %d to the hospital. \n", shares)
+	go func() {
 		p.BroadcastToHospital(shares) //Broadcast share to hospital.
-	}
+	}()
 }
 
-// If you are hospital broadcast result to peers.
-func (p *peer) BroadcastShares(shares int) {
-
-	for id, _ := range p.clients {
-		if id == p.id {
-			continue
-		}
-		p.BroadcastToPeers(shares, id)
-	}
-}
-
-// Send shares (secret) to hospital
+// Broadcast the sum of shares to the hospital
 func (p *peer) BroadcastToHospital(sumOfShares int) {
-	hospital := p.clients[0]                          //The hospital peer is the first index
+	hospital := p.clients[5050]                       //The hospital peer
 	share := &ping.Share{Message: int32(sumOfShares)} //Create share message
 
-	fmt.Printf("Sending share (%d) to hospital (%d)", sumOfShares, hospital)
-	ack, err := hospital.SendShares(p.ctx, share)
+	time.Sleep(time.Second * 1)
+	_, err := hospital.Send(p.ctx, share)
 	if err != nil {
 		log.Print("Something went wrong! Method: BroadcastToHospital()")
 	}
-	fmt.Printf("%v should have received the share %v", 0, ack.Message)
+	p.receivedMessages = make([]int, 3) //Remove shares from array
 }
 
-// Send shares (secret) to peer
+// Broadcast/Send the shares to the hospital
 func (p *peer) BroadcastToPeers(secret int, index int32) {
-	fmt.Printf("Index: %d \n", index)
 	client := p.clients[index]                   //Get peer by index
 	share := &ping.Share{Message: int32(secret)} //Create share message
-
-	fmt.Printf("Sending secret (%d) to peer (%d)", secret, client)
-	ack, err := client.SendShares(p.ctx, share)
+	_, err := client.Send(p.ctx, share)
 	if err != nil {
 		log.Print("Something went wrong! Method: BroadcastToPeers()")
 	}
-	fmt.Printf("%v should have received the share %v", 0, ack.Message)
 }
 
 // Make three shares using a circular group using a prime number.
-func splitShare(secret int, N int, fieldSize int) []int {
-	array := make([]int, N)
-	for i := 0; i < N-1; i++ {
-		rand.Seed(time.Now().UTC().UnixNano())
-		randomShare := rand.Intn(fieldSize)
-		array[i] = randomShare
+func splitShare(secret int, fieldSize int) []int {
+	rand.Seed(time.Now().UnixNano())
+	share1 := rand.Intn(fieldSize - 1)
+	share2 := rand.Intn(fieldSize - 1)
+	finalShare := (secret - ((share1 + share2) % fieldSize)) % fieldSize //Compute the last share
+	if finalShare < 0 {
+		finalShare = finalShare + fieldSize //If the finalshare is less than 0 we compute the actual modulo
 	}
-
-	var sum int
-	for i := 0; i < len(array); i++ {
-		sum += array[i] //Add the two shares, this is used to compute the last share.
-	}
-	array[2] = (secret - sum) % fieldSize //Compute the last share
-	return array
+	return []int{share1, share2, finalShare}
 }

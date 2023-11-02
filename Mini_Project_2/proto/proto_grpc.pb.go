@@ -18,7 +18,7 @@ const _ = grpc.SupportPackageIsVersion7
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type SendSharesClient interface {
-	SendShares(ctx context.Context, in *Share, opts ...grpc.CallOption) (*Acknoledgement, error)
+	Send(ctx context.Context, in *Share, opts ...grpc.CallOption) (*Acknoledgement, error)
 }
 
 type sendSharesClient struct {
@@ -29,9 +29,9 @@ func NewSendSharesClient(cc grpc.ClientConnInterface) SendSharesClient {
 	return &sendSharesClient{cc}
 }
 
-func (c *sendSharesClient) SendShares(ctx context.Context, in *Share, opts ...grpc.CallOption) (*Acknoledgement, error) {
+func (c *sendSharesClient) Send(ctx context.Context, in *Share, opts ...grpc.CallOption) (*Acknoledgement, error) {
 	out := new(Acknoledgement)
-	err := c.cc.Invoke(ctx, "/Mini_Project_2.SendShares/SendShares", in, out, opts...)
+	err := c.cc.Invoke(ctx, "/Mini_Project_2.SendShares/Send", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -42,7 +42,7 @@ func (c *sendSharesClient) SendShares(ctx context.Context, in *Share, opts ...gr
 // All implementations must embed UnimplementedSendSharesServer
 // for forward compatibility
 type SendSharesServer interface {
-	SendShares(context.Context, *Share) (*Acknoledgement, error)
+	Send(context.Context, *Share) (*Acknoledgement, error)
 	mustEmbedUnimplementedSendSharesServer()
 }
 
@@ -50,8 +50,8 @@ type SendSharesServer interface {
 type UnimplementedSendSharesServer struct {
 }
 
-func (UnimplementedSendSharesServer) SendShares(context.Context, *Share) (*Acknoledgement, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method SendShares not implemented")
+func (UnimplementedSendSharesServer) Send(context.Context, *Share) (*Acknoledgement, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Send not implemented")
 }
 func (UnimplementedSendSharesServer) mustEmbedUnimplementedSendSharesServer() {}
 
@@ -66,20 +66,20 @@ func RegisterSendSharesServer(s grpc.ServiceRegistrar, srv SendSharesServer) {
 	s.RegisterService(&SendShares_ServiceDesc, srv)
 }
 
-func _SendShares_SendShares_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _SendShares_Send_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(Share)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(SendSharesServer).SendShares(ctx, in)
+		return srv.(SendSharesServer).Send(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/Mini_Project_2.SendShares/SendShares",
+		FullMethod: "/Mini_Project_2.SendShares/Send",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(SendSharesServer).SendShares(ctx, req.(*Share))
+		return srv.(SendSharesServer).Send(ctx, req.(*Share))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -92,8 +92,8 @@ var SendShares_ServiceDesc = grpc.ServiceDesc{
 	HandlerType: (*SendSharesServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
-			MethodName: "SendShares",
-			Handler:    _SendShares_SendShares_Handler,
+			MethodName: "Send",
+			Handler:    _SendShares_Send_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
